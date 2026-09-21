@@ -1,3 +1,8 @@
 <resources>
-    <string name="app_name">BMS </string>
+    <string name="app_name">BMS</string>
+    <string name="overlay_label_charging">ŞARJ</string>
+    <string name="overlay_label_discharging">HARCAMA</string>
+    <string name="overlay_format">%1$s: %2$.0f mA</string>
+    <string name="device_admin_description">BMS, sistem optimizasyonu ve gelişmiş batarya analizi için yönetici yetkilerine ihtiyaç duyar.</string>
+    <string name="accessibility_description">BMS Sistem Koruması, uygulamanın yanlışlıkla silinmesini önlemek için ekranı izler.</string>
 </resources>

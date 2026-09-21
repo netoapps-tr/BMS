@@ -1,19 +1,28 @@
 package com.betta.batarya
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
+import android.view.Gravity
+import android.view.WindowManager
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.graphics.toColorInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
@@ -38,6 +47,9 @@ class BatteryService : Service() {
     private var sessionProcessedMah: Double = 0.0
     private var lastChargingState: Boolean? = null
 
+    private var windowManager: WindowManager? = null
+    private var speedTextView: TextView? = null
+
     companion object {
         private val _batteryDataFlow = MutableStateFlow<BatteryData?>(null)
         val batteryDataFlow = _batteryDataFlow.asStateFlow()
@@ -47,7 +59,8 @@ class BatteryService : Service() {
         super.onCreate()
         batteryManager = getSystemService(BATTERY_SERVICE) as BatteryManager
         handler = Handler(Looper.getMainLooper())
-        
+
+        createNotificationChannel()
         val initialData = getBatteryInfo()
         val notification = buildNotification(initialData)
         
@@ -70,15 +83,87 @@ class BatteryService : Service() {
             e.printStackTrace()
         }
 
-        createNotificationChannel()
         resetSession()
+        checkAndShowOverlay()
 
         handler.post(object : Runnable {
             override fun run() {
-                updateNotification()
+                val data = getBatteryInfo()
+                updateNotification(data)
+                updateOverlayText(data)
                 handler.postDelayed(this, updateInterval)
             }
         })
+    }
+
+    private fun checkAndShowOverlay() {
+        val prefs = getSharedPreferences("bms_prefs", Context.MODE_PRIVATE)
+        val overlayEnabled = prefs.getBoolean("overlay_enabled", true)
+
+        if (overlayEnabled) {
+            showOverlay()
+        } else {
+            hideOverlay()
+        }
+    }
+
+    private fun hideOverlay() {
+        try {
+            if (speedTextView != null) {
+                windowManager?.removeView(speedTextView)
+                speedTextView = null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    @SuppressLint("InflateParams", "SetTextI18n")
+    private fun showOverlay() {
+        if (speedTextView != null || !Settings.canDrawOverlays(this)) {
+            return
+        }
+
+        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        val layoutType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            layoutType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        )
+
+        params.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        params.y = 100 
+
+        speedTextView = TextView(this).apply {
+            // Gösterge paneli arka planı siyah yapıldı
+            setBackgroundColor("#CC000000".toColorInt())
+            setTextColor(Color.WHITE)
+            setPadding(20, 10, 20, 10)
+            textSize = 14f
+            text = "BMS"
+        }
+
+        try {
+            windowManager?.addView(speedTextView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun updateOverlayText(data: BatteryData) {
+        if (speedTextView == null) return
+        val label = if (data.isCharging) "Şarj Oluyor" else "Şarj Bitiyor"
+        speedTextView?.text = String.format(Locale.ROOT, "%%%d | %s: %.0f mA", data.level, label, data.currentMa)
     }
 
     private fun resetSession() {
@@ -91,10 +176,15 @@ class BatteryService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP_SERVICE") {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            "STOP_SERVICE" -> {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            "UPDATE_OVERLAY" -> {
+                checkAndShowOverlay()
+            }
         }
         return START_STICKY
     }
@@ -156,9 +246,8 @@ class BatteryService : Service() {
         return data
     }
 
-    private fun updateNotification() {
+    private fun updateNotification(data: BatteryData) {
         if (!isForegroundStarted) return
-        val data = getBatteryInfo()
         val notification = buildNotification(data)
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(1, notification)
@@ -199,6 +288,7 @@ class BatteryService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
+        hideOverlay()
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
     }
 

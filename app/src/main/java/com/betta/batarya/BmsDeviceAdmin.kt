@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 
+// 1.40: setUninstallBlocked ve caydırıcı mesaj kaldırıldı.
+// Manifest kaydı da kaldırıldı; bu sınıf geçmiş uyumluluk için duruyor.
 class BmsDeviceAdmin : DeviceAdminReceiver() {
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
